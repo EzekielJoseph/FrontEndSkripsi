@@ -1,0 +1,118 @@
+﻿* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: radial-gradient(circle at top, #1f2937 0%, #0f172a 50%, #020617 100%);
+  color: #e2e8f0;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.container {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+h1 {
+  margin: 0;
+  font-size: 2rem;
+}
+
+.subtitle {
+  margin-top: 8px;
+  color: #94a3b8;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.card {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.card h2 {
+  font-size: 0.95rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.value {
+  margin: 10px 0 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.value.small {
+  font-size: 1rem;
+}
+
+.status-normal {
+  color: #4ade80;
+}
+
+.status-warning {
+  color: #f59e0b;
+}
+
+.status-danger {
+  color: #ef4444;
+}
+
+.info {
+  margin-top: 14px;
+  color: #93c5fd;
+}
+
+.error {
+  margin-top: 14px;
+  color: #fca5a5;
+}
+
+.panel {
+  margin-top: 22px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.panel h3 {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 860px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  font-size: 0.9rem;
+}
+
+th {
+  color: #93c5fd;
+}
