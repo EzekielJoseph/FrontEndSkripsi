@@ -13,6 +13,7 @@
   --row-border: rgba(148, 163, 184, 0.2);
   --header-accent: #8ec5ff;
   --guide-stroke: rgba(203, 213, 225, 0.6);
+  --ma-line-color: rgba(248, 250, 252, 0.86);
   --info-color: #93c5fd;
   --error-color: #fda4af;
   --shadow-1: 0 20px 44px rgba(2, 6, 23, 0.35);
@@ -39,6 +40,7 @@
   --row-border: rgba(100, 116, 139, 0.25);
   --header-accent: #0369a1;
   --guide-stroke: rgba(51, 65, 85, 0.4);
+  --ma-line-color: rgba(15, 23, 42, 0.68);
   --info-color: #075985;
   --error-color: #b91c1c;
   --shadow-1: 0 20px 44px rgba(14, 116, 144, 0.14);
@@ -58,6 +60,10 @@ html,
 body,
 #root {
   min-height: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
@@ -151,13 +157,33 @@ a {
 }
 
 .navbar,
-.route-shell {
+.one-page-flow {
   position: relative;
   z-index: 2;
 }
 
-.route-shell {
+.one-page-flow {
   min-height: calc(100vh - 72px);
+  display: grid;
+  gap: 4px;
+}
+
+.flow-section {
+  scroll-margin-top: 72px;
+  transition: opacity 0.35s ease, transform 0.35s ease, filter 0.35s ease;
+  will-change: opacity, transform;
+}
+
+.flow-section.is-active {
+  opacity: 1;
+  transform: translateY(0);
+  filter: saturate(1);
+}
+
+.flow-section.is-inactive {
+  opacity: 0.86;
+  transform: translateY(8px);
+  filter: saturate(0.92);
 }
 
 .navbar {
@@ -167,6 +193,7 @@ a {
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--surface-border);
   background: rgba(7, 17, 31, 0.5);
+  overflow: clip;
 }
 
 :root[data-theme="light"] .navbar {
@@ -191,6 +218,15 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.brand-btn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
 }
 
 .brand-icon {
@@ -250,6 +286,28 @@ a {
   border-color: rgba(56, 189, 248, 0.9);
 }
 
+.nav-progress-track {
+  height: 3px;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.nav-progress-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.18s linear, background-color 0.2s ease;
+}
+
+.nav-progress-fill.landing {
+  background: linear-gradient(90deg, #22d3ee, #38bdf8);
+}
+
+.nav-progress-fill.dashboard {
+  background: linear-gradient(90deg, #38bdf8, #34d399);
+}
+
 .ui-icon {
   width: 18px;
   height: 18px;
@@ -259,6 +317,16 @@ a {
 .page {
   min-height: calc(100vh - 72px);
   padding: 24px 20px 28px;
+}
+
+.flow-page {
+  min-height: auto;
+  padding-top: 14px;
+  padding-bottom: 12px;
+}
+
+.flow-section + .flow-section .flow-page {
+  padding-top: 8px;
 }
 
 .container {
@@ -489,6 +557,105 @@ a {
   margin: 0 0 10px;
 }
 
+.control-select-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.control-select {
+  display: grid;
+  gap: 7px;
+  font-size: 0.86rem;
+  color: var(--muted-text);
+}
+
+.fancy-field .field-label {
+  letter-spacing: 0.01em;
+  font-weight: 600;
+}
+
+.field-shell {
+  position: relative;
+  display: grid;
+  align-items: center;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-soft);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.field-shell:focus-within {
+  border-color: var(--surface-border-hover);
+  box-shadow: 0 0 0 2px var(--surface-border);
+  transform: translateY(-1px);
+}
+
+.select-field {
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--text-color);
+  border-radius: 14px;
+  padding: 10px 36px 10px 12px;
+  width: 100%;
+  font-weight: 600;
+  outline: none;
+}
+
+.select-caret {
+  position: absolute;
+  right: 12px;
+  pointer-events: none;
+  font-size: 0.92rem;
+  color: var(--muted-text);
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.field-shell:focus-within .select-caret {
+  transform: translateY(1px);
+}
+
+.time-field {
+  display: grid;
+  gap: 7px;
+  font-size: 0.86rem;
+  color: var(--muted-text);
+}
+
+.time-label {
+  letter-spacing: 0.01em;
+  font-weight: 600;
+}
+
+.time-input-shell {
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-soft);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.time-input-shell:focus-within {
+  border-color: var(--surface-border-hover);
+  box-shadow: 0 0 0 2px var(--surface-border);
+  transform: translateY(-1px);
+}
+
+.time-input {
+  border: 0 !important;
+  background: transparent !important;
+  width: 100%;
+  color: var(--text-color);
+  border-radius: 14px !important;
+  font-weight: 600;
+  outline: none;
+}
+
+.time-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+
 .range-buttons {
   display: flex;
   gap: 8px;
@@ -597,6 +764,11 @@ a {
 
 .sensor-foot small {
   color: var(--muted-text);
+}
+
+.sensor-ma-label {
+  display: block;
+  margin-top: 4px;
 }
 
 .sensor-stats {
@@ -750,9 +922,59 @@ th {
 
   .time-inputs label,
   .time-inputs input,
+  .control-select-grid,
   .custom-range input,
   .time-actions button,
   .quick-window button {
     width: 100%;
   }
+
+  .control-select-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.route-loading {
+  min-height: calc(100vh - 72px);
+  display: grid;
+  place-items: center;
+  color: var(--muted-text);
+  font-size: 0.95rem;
+}
+
+.app-shell.low-power .cursor-trail {
+  display: none !important;
+}
+
+.app-shell.low-power .flow-section {
+  transition: none !important;
+  transform: none !important;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+.app-shell.low-power .pulse-a,
+.app-shell.low-power .pulse-b,
+.app-shell.low-power .pulse-c {
+  animation: none !important;
+}
+
+.app-shell.low-power .bg-glow {
+  display: none;
+}
+
+.app-shell.low-power .bg-blob {
+  filter: blur(18px);
+}
+
+.app-shell.low-power .nav-link,
+.app-shell.low-power .theme-btn,
+.app-shell.low-power .menu-btn,
+.app-shell.low-power .btn,
+.app-shell.low-power .actions button,
+.app-shell.low-power .range-buttons button,
+.app-shell.low-power .custom-range button,
+.app-shell.low-power .time-actions button,
+.app-shell.low-power .quick-window button {
+  transition: none !important;
 }

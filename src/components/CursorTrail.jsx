@@ -1,15 +1,15 @@
 import { motion, useMotionValue, useSpring } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 function TrailDot({ mouseX, mouseY, size, opacity, lag }) {
   const x = useSpring(mouseX, {
-    stiffness: 420 - lag * 28,
-    damping: 34 + lag * 2,
+    stiffness: 360 - lag * 24,
+    damping: 30 + lag * 2,
     mass: 0.25 + lag * 0.02
   });
   const y = useSpring(mouseY, {
-    stiffness: 420 - lag * 28,
-    damping: 34 + lag * 2,
+    stiffness: 360 - lag * 24,
+    damping: 30 + lag * 2,
     mass: 0.25 + lag * 0.02
   });
 
@@ -29,53 +29,84 @@ function TrailDot({ mouseX, mouseY, size, opacity, lag }) {
   );
 }
 
-export default function CursorTrail() {
+export default function CursorTrail({ lowPower = false }) {
   const [enabled, setEnabled] = useState(false);
   const mouseX = useMotionValue(-120);
   const mouseY = useMotionValue(-120);
 
+  const rafRef = useRef(0);
+  const pendingRef = useRef({ x: -120, y: -120 });
+
   const dots = useMemo(
-    () => [18, 15, 12, 10, 8, 6].map((size, index) => ({ size, index })),
+    () => [16, 12, 9, 7].map((size, index) => ({ size, index })),
     []
   );
 
   useEffect(() => {
-    const media = window.matchMedia("(pointer: fine)");
+    const pointerMedia = window.matchMedia("(pointer: fine)");
+    const motionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
 
     function handleMediaChange() {
-      setEnabled(media.matches);
+      setEnabled(pointerMedia.matches && !motionMedia.matches && !lowPower);
     }
 
     handleMediaChange();
 
-    if (media.addEventListener) {
-      media.addEventListener("change", handleMediaChange);
-      return () => media.removeEventListener("change", handleMediaChange);
+    const unsubscribe = [];
+
+    if (pointerMedia.addEventListener) {
+      pointerMedia.addEventListener("change", handleMediaChange);
+      motionMedia.addEventListener("change", handleMediaChange);
+      unsubscribe.push(() => pointerMedia.removeEventListener("change", handleMediaChange));
+      unsubscribe.push(() => motionMedia.removeEventListener("change", handleMediaChange));
+    } else {
+      pointerMedia.addListener(handleMediaChange);
+      motionMedia.addListener(handleMediaChange);
+      unsubscribe.push(() => pointerMedia.removeListener(handleMediaChange));
+      unsubscribe.push(() => motionMedia.removeListener(handleMediaChange));
     }
 
-    media.addListener(handleMediaChange);
-    return () => media.removeListener(handleMediaChange);
-  }, []);
+    return () => {
+      unsubscribe.forEach((fn) => fn());
+    };
+  }, [lowPower]);
 
   useEffect(() => {
     if (!enabled) {
       return undefined;
     }
 
+    function flushMove() {
+      rafRef.current = 0;
+      mouseX.set(pendingRef.current.x);
+      mouseY.set(pendingRef.current.y);
+    }
+
     function handleMove(event) {
-      mouseX.set(event.clientX);
-      mouseY.set(event.clientY);
+      pendingRef.current = { x: event.clientX, y: event.clientY };
+
+      if (!rafRef.current) {
+        rafRef.current = window.requestAnimationFrame(flushMove);
+      }
     }
 
     function handleLeave() {
-      mouseX.set(-120);
-      mouseY.set(-120);
+      pendingRef.current = { x: -120, y: -120 };
+
+      if (!rafRef.current) {
+        rafRef.current = window.requestAnimationFrame(flushMove);
+      }
     }
 
-    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointermove", handleMove, { passive: true });
     window.addEventListener("pointerleave", handleLeave);
 
     return () => {
+      if (rafRef.current) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+      }
+
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerleave", handleLeave);
     };
@@ -94,7 +125,7 @@ export default function CursorTrail() {
           mouseY={mouseY}
           size={dot.size}
           lag={idx}
-          opacity={0.38 - idx * 0.05}
+          opacity={0.34 - idx * 0.06}
         />
       ))}
     </div>
