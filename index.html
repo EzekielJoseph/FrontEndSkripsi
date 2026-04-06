@@ -1,46 +1,12 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <title>IoT Monitoring Dashboard</title>
-    <link rel="stylesheet" href="style.css">
-
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-
-<div class="container">
-
-    <h1>🌱 IoT Odor Sensor</h1>
-
-    <!-- Cards -->
-    <div class="cards">
-
-        <div class="card">
-            <h3>Gas Level</h3>
-            <p id="gasValue">-</p>
-        </div>
-
-        <div class="card">
-            <h3>Status</h3>
-            <p id="statusValue">-</p>
-        </div>
-
-        <div class="card">
-            <h3>Last Update</h3>
-            <p id="timeValue">-</p>
-        </div>
-
-    </div>
-
-    <!-- Chart -->
-    <div class="chart-container">
-        <h2>Gas Level Trend</h2>
-        <canvas id="gasChart"></canvas>
-    </div>
-
-</div>
-
-<script src="script.js"></script>
-
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GOD - Garbage Odor Detection</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>
