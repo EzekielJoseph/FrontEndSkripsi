@@ -23,9 +23,13 @@ const SENSORS = [
 ];
 
 const RANGE_OPTIONS = [5, 10, 20, "all"];
+const RECENT_LIMIT_OPTIONS = [5, 10, 20, "all"];
+const API_QUERY_LIMIT_OPTIONS = [10, 25, 50, 100];
 const MA_WINDOW_OPTIONS = [3, 5, 7, 10];
 const POLL_MS_NORMAL = 5000;
 const POLL_MS_LOW_POWER = 12000;
+const DELAY_API_ENDPOINT = "http://45.126.43.35:5000/api/delay";
+const DELAY_OFFSET_MS = 1000;
 
 function getStatus(mq135Value) {
   if (mq135Value < 300) return { text: "NORMAL", className: "status-normal" };
@@ -34,10 +38,62 @@ function getStatus(mq135Value) {
 }
 
 function parseTimeMs(value) {
-  if (!value) return null;
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
 
-  const ms = new Date(value).getTime();
-  return Number.isFinite(ms) ? ms : null;
+  if (value instanceof Date) {
+    const dateMs = value.getTime();
+    return Number.isFinite(dateMs) ? dateMs : null;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const directMs = Date.parse(raw);
+  if (Number.isFinite(directMs)) {
+    return directMs;
+  }
+
+  const normalized = raw
+    .replace(/\s+/, "T")
+    .replace(/(\.\d{3})\d+/, "$1")
+    .replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  const normalizedMs = Date.parse(normalized);
+  if (Number.isFinite(normalizedMs)) {
+    return normalizedMs;
+  }
+
+  const localMatch = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/
+  );
+  if (!localMatch) return null;
+
+  const [, year, month, day, hour, minute, second = "0", millisecond = "0"] = localMatch;
+  const localMs = new Date(
+    Number.parseInt(year, 10),
+    Number.parseInt(month, 10) - 1,
+    Number.parseInt(day, 10),
+    Number.parseInt(hour, 10),
+    Number.parseInt(minute, 10),
+    Number.parseInt(second, 10),
+    Number.parseInt(millisecond.padEnd(3, "0"), 10)
+  ).getTime();
+
+  return Number.isFinite(localMs) ? localMs : null;
+}
+
+function parseBoundaryTimeMs(value, boundary = "start") {
+  const ms = parseTimeMs(value);
+  if (ms === null) return null;
+
+  if (boundary === "end" && typeof value === "string") {
+    const isMinutePrecisionLocal = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value.trim());
+    if (isMinutePrecisionLocal) {
+      return ms + 59_999;
+    }
+  }
+
+  return ms;
 }
 
 function formatTime(isoString) {
@@ -72,6 +128,12 @@ function formatNumber(value, digits = 2) {
 
   const num = Number(value);
   return Number.isFinite(num) ? num.toFixed(digits) : "-";
+}
+
+function formatDelaySeconds(delayMs) {
+  const num = Number(delayMs);
+  if (!Number.isFinite(num)) return "-";
+  return `${(num / 1000).toFixed(3)} s`;
 }
 
 function clamp(value, min, max) {
@@ -277,12 +339,21 @@ const SensorChart = memo(function SensorChart({
 
 export default function DashboardPage({ lowPower = false, fluid = false }) {
   const [payload, setPayload] = useState(null);
+  const [delayPayload, setDelayPayload] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [delayLoading, setDelayLoading] = useState(true);
   const [error, setError] = useState("");
+  const [delayError, setDelayError] = useState("");
 
   const [range, setRange] = useState(10);
   const [customRangeInput, setCustomRangeInput] = useState("15");
   const [customRangeError, setCustomRangeError] = useState("");
+  const [recentLimit, setRecentLimit] = useState(10);
+  const [recentLimitInput, setRecentLimitInput] = useState("10");
+  const [recentLimitError, setRecentLimitError] = useState("");
+  const [queryLimit, setQueryLimit] = useState(50);
+  const [queryLimitInput, setQueryLimitInput] = useState("50");
+  const [queryLimitError, setQueryLimitError] = useState("");
   const [selectedDevice, setSelectedDevice] = useState("all");
   const [movingAvgWindow, setMovingAvgWindow] = useState(3);
 
@@ -295,7 +366,9 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
   const [pageVisible, setPageVisible] = useState(!document.hidden);
 
   const fetchInFlightRef = useRef(false);
+  const delayFetchInFlightRef = useRef(false);
   const abortRef = useRef(null);
+  const delayAbortRef = useRef(null);
 
   const pollIntervalMs = lowPower ? POLL_MS_LOW_POWER : POLL_MS_NORMAL;
 
@@ -308,9 +381,28 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
       .sort((a, b) => b.__ts - a.__ts);
   }, [payload]);
 
+  const delayItemsDesc = useMemo(() => {
+    const items = delayPayload?.items ?? [];
+
+    return items
+      .map((item) => {
+        const rawDiffMs = Number(item.diff_ms);
+        const adjustedDiffMs = Number.isFinite(rawDiffMs)
+          ? Math.max(0, rawDiffMs - DELAY_OFFSET_MS)
+          : null;
+
+        return {
+          ...item,
+          __ts: parseTimeMs(item.created_at),
+          adjusted_diff_ms: adjustedDiffMs
+        };
+      })
+      .sort((a, b) => (b.__ts ?? 0) - (a.__ts ?? 0));
+  }, [delayPayload]);
+
   const timeFilteredItemsDesc = useMemo(() => {
-    const startMs = parseTimeMs(appliedTimeRange.start);
-    const endMs = parseTimeMs(appliedTimeRange.end);
+    const startMs = parseBoundaryTimeMs(appliedTimeRange.start, "start");
+    const endMs = parseBoundaryTimeMs(appliedTimeRange.end, "end");
 
     if (startMs === null && endMs === null) {
       return sortedItemsDesc;
@@ -357,6 +449,12 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
     if (range === "all") return deviceFilteredItemsDesc;
     return deviceFilteredItemsDesc.slice(0, range);
   }, [range, deviceFilteredItemsDesc]);
+  const recentItemsDesc = useMemo(() => {
+    if (recentLimit === "all") return deviceFilteredItemsDesc;
+    return deviceFilteredItemsDesc.slice(0, recentLimit);
+  }, [deviceFilteredItemsDesc, recentLimit]);
+  const isRecentLimitOverAvailable =
+    typeof recentLimit === "number" && recentLimit > deviceFilteredItemsDesc.length;
 
   const timelineItems = useMemo(() => [...visibleItemsDesc].reverse(), [visibleItemsDesc]);
   const timelineLabels = useMemo(
@@ -365,8 +463,13 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
   );
 
   const latest = deviceFilteredItemsDesc[0];
+  const latestDelay = delayItemsDesc[0];
   const status = latest ? getStatus(latest.mq135) : null;
   const customActive = typeof range === "number" && !RANGE_OPTIONS.includes(range);
+  const customRecentActive =
+    typeof recentLimit === "number" && !RECENT_LIMIT_OPTIONS.includes(recentLimit);
+  const queryLimitCustomActive =
+    typeof queryLimit === "number" && !API_QUERY_LIMIT_OPTIONS.includes(queryLimit);
   const hasTimeFilter = Boolean(appliedTimeRange.start || appliedTimeRange.end);
 
   const sensorSeries = useMemo(() => {
@@ -404,21 +507,20 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
     abortRef.current = controller;
 
     try {
-      const response = await fetch("/api/data", { signal: controller.signal });
+      const query = new URLSearchParams();
+      if (selectedDevice !== "all") {
+        query.set("device_id", selectedDevice);
+      }
+      if (Number.isFinite(queryLimit) && queryLimit > 0) {
+        query.set("limit", String(queryLimit));
+      }
+
+      const endpoint = query.size ? `/api/data?${query.toString()}` : "/api/data";
+      const response = await fetch(endpoint, { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const json = await response.json();
-
-      setPayload((prev) => {
-        const prevHead = prev?.items?.[0]?.id;
-        const nextHead = json?.items?.[0]?.id;
-
-        if (prevHead === nextHead && prev?.count === json?.count) {
-          return prev;
-        }
-
-        return json;
-      });
+      setPayload(json);
 
       setError("");
     } catch (err) {
@@ -433,15 +535,50 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
         setLoading(false);
       }
     }
+  }, [queryLimit, selectedDevice]);
+
+  const loadDelayData = useCallback(async (silent = false) => {
+    if (delayFetchInFlightRef.current) {
+      return;
+    }
+
+    delayFetchInFlightRef.current = true;
+
+    const controller = new AbortController();
+    delayAbortRef.current = controller;
+
+    try {
+      const response = await fetch(DELAY_API_ENDPOINT, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const json = await response.json();
+      setDelayPayload(json);
+      setDelayError("");
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
+
+      setDelayError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      delayFetchInFlightRef.current = false;
+      if (!silent) {
+        setDelayLoading(false);
+      }
+    }
   }, []);
 
   useEffect(() => {
     loadData(false);
+    loadDelayData(false);
 
     return () => {
+      fetchInFlightRef.current = false;
       abortRef.current?.abort();
+      delayFetchInFlightRef.current = false;
+      delayAbortRef.current?.abort();
     };
-  }, [loadData]);
+  }, [loadData, loadDelayData]);
 
   useEffect(() => {
     function onVisibilityChange() {
@@ -450,12 +587,13 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
 
       if (visible && !paused) {
         loadData(true);
+        loadDelayData(true);
       }
     }
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [loadData, paused]);
+  }, [loadData, loadDelayData, paused]);
 
   useEffect(() => {
     if (paused || !pageVisible) {
@@ -464,10 +602,11 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
 
     const timer = setInterval(() => {
       loadData(true);
+      loadDelayData(true);
     }, pollIntervalMs);
 
     return () => clearInterval(timer);
-  }, [paused, pageVisible, pollIntervalMs, loadData]);
+  }, [paused, pageVisible, pollIntervalMs, loadData, loadDelayData]);
 
   function handlePresetRange(option) {
     setRange(option);
@@ -489,9 +628,58 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
     setCustomRangeError("");
   }
 
+  function handlePresetQueryLimit(option) {
+    setQueryLimit(option);
+    setQueryLimitInput(String(option));
+    setQueryLimitError("");
+  }
+
+  function applyQueryLimit() {
+    const parsed = Number.parseInt(queryLimitInput, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setQueryLimitError("Isi limit query valid (minimal 1)");
+      return;
+    }
+
+    setQueryLimit(parsed);
+    setQueryLimitError("");
+  }
+
+  function handleRecentPresetLimit(option) {
+    setRecentLimit(option);
+    setRecentLimitError("");
+
+    if (typeof option === "number") {
+      setRecentLimitInput(String(option));
+
+      if (!Number.isFinite(queryLimit) || option > queryLimit) {
+        setQueryLimit(option);
+        setQueryLimitInput(String(option));
+        setQueryLimitError("");
+      }
+    }
+  }
+
+  function applyRecentLimit() {
+    const parsed = Number.parseInt(recentLimitInput, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setRecentLimitError("Isi jumlah data valid (minimal 1)");
+      return;
+    }
+
+    setRecentLimit(parsed);
+    setRecentLimitError("");
+
+    if (!Number.isFinite(queryLimit) || parsed > queryLimit) {
+      setQueryLimit(parsed);
+      setQueryLimitInput(String(parsed));
+      setQueryLimitError("");
+    }
+  }
+
   function applyTimeRange() {
-    const startMs = parseTimeMs(timeStartInput);
-    const endMs = parseTimeMs(timeEndInput);
+    const startMs = parseBoundaryTimeMs(timeStartInput, "start");
+    const endMs = parseBoundaryTimeMs(timeEndInput, "end");
 
     if (!timeStartInput && !timeEndInput) {
       setTimeRangeError("Isi minimal start atau end time.");
@@ -654,6 +842,47 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
                   </div>
 
                   <div className="range-buttons">
+                    {API_QUERY_LIMIT_OPTIONS.map((option) => (
+                      <Button
+                        type="button"
+                        key={`query-limit-${option}`}
+                        variant={option === queryLimit ? "default" : "outline"}
+                        className={option === queryLimit ? "active" : ""}
+                        onClick={() => handlePresetQueryLimit(option)}
+                      >
+                        Query {option}
+                      </Button>
+                    ))}
+                  </div>
+
+                  <div className="custom-range">
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={queryLimitInput}
+                      onChange={(event) => setQueryLimitInput(event.target.value)}
+                      placeholder="Custom limit query API"
+                    />
+                    <Button
+                      type="button"
+                      onClick={applyQueryLimit}
+                      variant={queryLimitCustomActive ? "default" : "outline"}
+                      className={queryLimitCustomActive ? "active" : ""}
+                    >
+                      Terapkan Query
+                    </Button>
+                  </div>
+                  {queryLimitError && <p className="error compact">{queryLimitError}</p>}
+                  {!queryLimitError && (
+                    <p className="filter-pill">
+                      Query API aktif: device = {selectedDevice === "all" ? "all" : selectedDevice}
+                      {" | "}
+                      limit = {queryLimit}
+                    </p>
+                  )}
+
+                  <div className="range-buttons">
                     {RANGE_OPTIONS.map((option) => (
                       <Button
                         type="button"
@@ -748,6 +977,107 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
         {loading && <p className="info">Loading data...</p>}
         {error && <p className="error">Gagal ambil data: {error}</p>}
 
+        <Card className="panel">
+          <CardHeader>
+            <CardTitle>Panel Delay Device</CardTitle>
+            <CardDescription>
+              Data dari endpoint delay dengan pengurangan 1 detik ({DELAY_OFFSET_MS} ms) pada nilai delay.
+            </CardDescription>
+            <Separator />
+          </CardHeader>
+          <CardContent>
+            {delayLoading && <p className="info">Loading delay data...</p>}
+            {delayError && <p className="error compact">Gagal ambil data delay: {delayError}</p>}
+
+            {!delayLoading && !delayError && latestDelay && (
+              <div className="cards">
+                <Card className="card">
+                  <CardHeader>
+                    <CardDescription>Delay Setelah Dikurangi 1s</CardDescription>
+                    <CardTitle className="value">{formatDelaySeconds(latestDelay.adjusted_diff_ms)}</CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card className="card">
+                  <CardHeader>
+                    <CardDescription>Delay Asli</CardDescription>
+                    <CardTitle className="value">{formatDelaySeconds(latestDelay.diff_ms)}</CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card className="card">
+                  <CardHeader>
+                    <CardDescription>Device</CardDescription>
+                    <CardTitle className="value">{latestDelay.device_id ?? "-"}</CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card className="card">
+                  <CardHeader>
+                    <CardDescription>Created At</CardDescription>
+                    <CardTitle className="value small">{formatTime(latestDelay.created_at)}</CardTitle>
+                  </CardHeader>
+                </Card>
+              </div>
+            )}
+
+            {!delayLoading && !delayError && !delayItemsDesc.length && (
+              <p className="info">Belum ada data delay.</p>
+            )}
+
+            {!delayLoading && !delayError && delayItemsDesc.length > 0 && (
+              <>
+                <div className="table-wrap desktop-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Device</th>
+                        <th>Sensor Data ID</th>
+                        <th>Delay (Asli)</th>
+                        <th>Delay (-1s)</th>
+                        <th>Device Time</th>
+                        <th>Received Time</th>
+                        <th>Created At</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {delayItemsDesc.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.id}</td>
+                          <td>{item.device_id}</td>
+                          <td>{item.sensor_data_id}</td>
+                          <td>{formatDelaySeconds(item.diff_ms)}</td>
+                          <td>{formatDelaySeconds(item.adjusted_diff_ms)}</td>
+                          <td>{formatTime(item.device_timestamp_ms)}</td>
+                          <td>{formatTime(item.received_timestamp_ms)}</td>
+                          <td>{formatTime(item.created_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mobile-list">
+                  {delayItemsDesc.map((item) => (
+                    <article key={item.id} className="mobile-row">
+                      <div className="mobile-row-head">
+                        <strong>#{item.id}</strong>
+                        <span>{item.device_id}</span>
+                      </div>
+                      <div className="mobile-row-grid">
+                        <p>Sensor Data ID: {item.sensor_data_id}</p>
+                        <p>Delay Asli: {formatDelaySeconds(item.diff_ms)}</p>
+                        <p>Delay -1s: {formatDelaySeconds(item.adjusted_diff_ms)}</p>
+                        <p>Device Time: {formatTime(item.device_timestamp_ms)}</p>
+                        <p>Received Time: {formatTime(item.received_timestamp_ms)}</p>
+                      </div>
+                      <small>{formatTime(item.created_at)}</small>
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
         <section className="sensor-grid">
           {sensorSeries.map((series) => (
             <SensorChart
@@ -767,10 +1097,56 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
 
         <Card className="panel">
           <CardHeader>
-            <CardTitle>Recent Sensor Data ({visibleItemsDesc.length})</CardTitle>
+            <CardTitle>
+              Recent Sensor Data ({recentItemsDesc.length})
+            </CardTitle>
+            <CardDescription>
+              Menampilkan {recentItemsDesc.length} data terbaru setelah filter device dan waktu.
+              Data tersedia dari API saat ini: {deviceFilteredItemsDesc.length}.
+            </CardDescription>
             <Separator />
           </CardHeader>
           <CardContent>
+            <div className="range-buttons">
+              {RECENT_LIMIT_OPTIONS.map((option) => (
+                <Button
+                  type="button"
+                  key={`recent-${option}`}
+                  variant={option === recentLimit ? "default" : "outline"}
+                  className={option === recentLimit ? "active" : ""}
+                  onClick={() => handleRecentPresetLimit(option)}
+                >
+                  {option === "all" ? "Semua" : `${option} data`}
+                </Button>
+              ))}
+            </div>
+
+            <div className="custom-range">
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={recentLimitInput}
+                onChange={(event) => setRecentLimitInput(event.target.value)}
+                placeholder="Jumlah data recent"
+              />
+              <Button
+                type="button"
+                onClick={applyRecentLimit}
+                variant={customRecentActive ? "default" : "outline"}
+                className={customRecentActive ? "active" : ""}
+              >
+                Terapkan
+              </Button>
+            </div>
+            {recentLimitError && <p className="error compact">{recentLimitError}</p>}
+            {!recentLimitError && isRecentLimitOverAvailable && (
+              <p className="info">
+                Batas diminta {recentLimit} data, tapi API saat ini hanya menyediakan{" "}
+                {deviceFilteredItemsDesc.length} data.
+              </p>
+            )}
+
             <div className="table-wrap desktop-table">
               <table>
                 <thead>
@@ -787,7 +1163,7 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleItemsDesc.map((item) => (
+                  {recentItemsDesc.map((item) => (
                     <tr key={item.id}>
                       <td>{item.id}</td>
                       <td>{item.device_id}</td>
@@ -805,7 +1181,7 @@ export default function DashboardPage({ lowPower = false, fluid = false }) {
             </div>
 
             <div className="mobile-list">
-              {visibleItemsDesc.map((item) => (
+              {recentItemsDesc.map((item) => (
                 <article key={item.id} className="mobile-row">
                   <div className="mobile-row-head">
                     <strong>#{item.id}</strong>

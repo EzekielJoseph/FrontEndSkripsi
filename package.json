@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
+    "dev": "vite",
+    "dev:legacy-proxy": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "node server/index.js",
     "dev:client": "vite",
     "build": "vite build",
